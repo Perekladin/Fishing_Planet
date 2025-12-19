@@ -3,6 +3,8 @@ using UnityEngine.UI;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
+using UnityEngine.XR.ARFoundation;
+using UnityEngine.XR.ARSubsystems;
 
 public class Fishing : MonoBehaviour
 {
@@ -28,25 +30,36 @@ public class Fishing : MonoBehaviour
     [SerializeField] private float throwForce = 15f;
     [SerializeField] private float throwUpForce = 8f;
 
-    [Header("Системы")]
-    [SerializeField] private PondManager pondManager;
-    [SerializeField] private AchievementManager achievementManager;
+    [Header("Пруд")]
+    [SerializeField] private GameObject pondPrefab;
+    [SerializeField] private ARRaycastManager arRaycastManager;
+    [SerializeField] private LayerMask planeLayer = 1;
 
     [Header("Настройки генератора рыб")]
     [SerializeField] private int maxFishCount = 20;
     [SerializeField] private bool generateFishOnStart = true;
 
+    [Header("Достижения")]
+    [SerializeField] private AchievementManager achievementManager;
+
     private List<FishData> fishDatabase = new List<FishData>();
     private bool isFishing = false;
     private GameObject currentFloat;
+    private GameObject currentPond; //  ТОЛЬКО ОДИН пруд
     private Coroutine fishingCoroutine;
     private Coroutine resultHideCoroutine;
+    private Coroutine pondSpawnCoroutine; //  Для контроля спавна
     private int totalFishCaught = 0;
+    private bool floatHitPond = false;
+    private Vector3 pondFixedPosition;
+    private bool pondReady = false;
+    private bool pondLocked = false;
+    private bool isWaitingForTap = false; //  Ожидание тапа для пруда
 
     private void Start()
     {
         castButton.onClick.AddListener(OnCastButton);
-        resetPondButton.onClick.AddListener(OnResetPondButton);
+        resetPondButton.onClick.AddListener(ResetPondPosition);
         catchResultPanel.SetActive(false);
 
         totalFishCaught = PlayerPrefs.GetInt("TotalFishCaught", 0);
@@ -60,44 +73,95 @@ public class Fishing : MonoBehaviour
 
     private void Update()
     {
-        // Кнопка заброса активна только когда пруд готов
-        castButton.interactable = pondManager.IsPondReady && !isFishing;
+        //  Обработка тапа для создания пруда
+        if (isWaitingForTap && Input.touchCount > 0 && Input.GetTouch(0).phase == TouchPhase.Began)
+        {
+            HandlePondTap();
+        }
+        else if (!isWaitingForTap && !isFishing && currentPond == null)
+        {
+            // Показываем инструкцию наведения
+            ShowPondInstruction();
+        }
+    }
+
+    private void ShowPondInstruction()
+    {
+        // Здесь можно показать UI "Наведите на поверхность и тапните"
+        Debug.Log("Наведите камеру на поверхность и тапните для создания пруда");
+    }
+
+    private void HandlePondTap()
+    {
+        Vector2 touchPosition = Input.GetTouch(0).position;
+        List<ARRaycastHit> hits = new List<ARRaycastHit>();
+
+        if (arRaycastManager.Raycast(touchPosition, hits, TrackableType.PlaneWithinPolygon))
+        {
+            //  УДАЛЯЕМ СТАРЫЙ ПРУД (если есть)
+            if (currentPond != null)
+            {
+                Destroy(currentPond);
+            }
+
+            //  Создаем НОВЫЙ пруд по тапу
+            pondFixedPosition = hits[0].pose.position;
+            currentPond = Instantiate(pondPrefab, pondFixedPosition + Vector3.up * 0.01f, hits[0].pose.rotation);
+            pondReady = true;
+            pondLocked = true; //  Сразу фиксируем
+            isWaitingForTap = false;
+
+            Debug.Log("Пруд создан по тапу! Готов к рыбалке.");
+            castButton.interactable = true;
+        }
+    }
+
+    public void ResetPondPosition()
+    {
+        //  Полная очистка пруда
+        if (currentPond != null)
+        {
+            Destroy(currentPond);
+            currentPond = null;
+        }
+
+        pondReady = false;
+        pondLocked = false;
+        isWaitingForTap = true; //  Возвращаемся к режиму ожидания тапа
+
+        Debug.Log("Пруд сброшен. Тапните на поверхность для нового пруда.");
     }
 
     private void OnCastButton()
     {
-        if (!pondManager.IsPondReady || isFishing)
+        if (isFishing || !pondReady || currentPond == null)
         {
-            Debug.LogWarning("Сначала дождитесь появления пруда!");
+            Debug.LogWarning("Сначала создайте пруд тапом на поверхность!");
             return;
         }
 
-        //  Блокируем создание новых прудов
-        pondManager.LockPond();
         isFishing = true;
         castButton.interactable = false;
 
-        Debug.Log("Заброс поплавка!");
+        Debug.Log("Заброс поплавка в пруд!");
         ThrowFloat();
         StartCoroutine(CheckFloatHit());
     }
 
-    private void OnResetPondButton()
-    {
-        pondManager.ResetPond();
-        pondManager.UnlockPond();
-    }
-
     private void ThrowFloat()
     {
-        if (currentFloat != null) Destroy(currentFloat);
+        if (currentFloat != null)
+        {
+            Destroy(currentFloat);
+            currentFloat = null;
+        }
 
         currentFloat = Instantiate(floatPrefab, rodTip.position, rodTip.rotation);
         Rigidbody rb = currentFloat.GetComponent<Rigidbody>();
 
         if (rb != null)
         {
-            Vector3 directionToPond = (pondManager.PondPosition - rodTip.position).normalized;
+            Vector3 directionToPond = (pondFixedPosition - rodTip.position).normalized;
             rb.AddForce(directionToPond * throwForce + Vector3.up * throwUpForce, ForceMode.Impulse);
         }
     }
@@ -106,16 +170,21 @@ public class Fishing : MonoBehaviour
     {
         yield return new WaitForSeconds(2f);
 
-        if (!pondManager.HasPond || currentFloat == null)
+        if (currentPond == null || currentFloat == null)
         {
             CleanupFishing();
             yield break;
         }
 
-        float distance = Vector3.Distance(currentFloat.transform.position, pondManager.PondPosition);
-        if (distance < 1.5f)
+        float distance = Vector3.Distance(currentFloat.transform.position, pondFixedPosition);
+        Collider pondCollider = currentPond.GetComponent<Collider>();
+        float pondRadius = pondCollider != null ? pondCollider.bounds.extents.magnitude : 1.5f;
+
+        if (distance < pondRadius)
         {
+            floatHitPond = true;
             Debug.Log("Поплавок в пруду! Ждем поклевки...");
+
             float randomWait = Random.Range(fishingTimeMin, fishingTimeMax);
             yield return new WaitForSeconds(randomWait);
 
@@ -127,7 +196,8 @@ public class Fishing : MonoBehaviour
         }
         else
         {
-            Debug.Log("Промах!");
+            floatHitPond = false;
+            Debug.Log("Промах! Поплавок исчезает...");
             yield return new WaitForSeconds(floatMissTime);
             CleanupFishing();
         }
@@ -146,6 +216,13 @@ public class Fishing : MonoBehaviour
         if (caughtFish != null)
         {
             OnFishCaught(caughtFish);
+
+            FishRating fishRating = FindObjectOfType<FishRating>();
+            if (fishRating != null)
+            {
+                fishRating.AddFishToRating(caughtFish);
+            }
+
             ShowCatchResult(caughtFish);
         }
 
@@ -154,12 +231,17 @@ public class Fishing : MonoBehaviour
 
     private void CleanupFishing()
     {
-        if (currentFloat != null) Destroy(currentFloat);
+        if (currentFloat != null)
+        {
+            Destroy(currentFloat);
+            currentFloat = null;
+        }
+
         isFishing = false;
-        castButton.interactable = pondManager.IsPondReady;
+        castButton.interactable = pondReady; //  Только если пруд готов
+        floatHitPond = false;
     }
 
-    // Остальные методы без изменений (OnFishCaught, ShowCatchResult, GenerateFishDatabase...)
     private void OnFishCaught(FishData fish)
     {
         totalFishCaught++;
@@ -180,13 +262,18 @@ public class Fishing : MonoBehaviour
 
     private FishData GetRandomFish()
     {
-        if (fishDatabase.Count == 0) return null;
+        if (fishDatabase.Count == 0)
+        {
+            Debug.LogWarning("База рыб пуста! Сгенерируйте базу.");
+            return null;
+        }
         return fishDatabase[Random.Range(0, fishDatabase.Count)];
     }
 
     private void ShowCatchResult(FishData fish)
     {
         catchResultPanel.SetActive(true);
+
         resultFishNameText.text = fish.fishName;
         resultFishWeightText.text = "Вес: " + fish.weight.ToString("F1") + " кг | Редкость: " + fish.rarity + "/5 | Всего: " + totalFishCaught;
 
@@ -200,7 +287,8 @@ public class Fishing : MonoBehaviour
             resultFishImage.gameObject.SetActive(false);
         }
 
-        if (resultHideCoroutine != null) StopCoroutine(resultHideCoroutine);
+        if (resultHideCoroutine != null)
+            StopCoroutine(resultHideCoroutine);
         resultHideCoroutine = StartCoroutine(HideResultAfterDelay());
     }
 
@@ -213,20 +301,35 @@ public class Fishing : MonoBehaviour
     private void GenerateFishDatabase()
     {
         fishDatabase.Clear();
-        string[] fishNames = { "Окунь", "Карп", "Сом", "Щука", "Судак", "Лещ", "Плотва", "Налим", "Форель", "Угорь", "Красноперка", "Язь", "Голавль", "Хариус", "Сазан" };
-        Sprite[] fishSprites = { Resources.Load<Sprite>("Fish/Perch"), Resources.Load<Sprite>("Fish/Carp"), Resources.Load<Sprite>("Fish/Catfish"), Resources.Load<Sprite>("Fish/Pike"), Resources.Load<Sprite>("Fish/Zander") };
+
+        string[] fishNames = {
+            "Окунь", "Карп", "Сом", "Щука", "Судак",
+            "Лещ", "Плотва", "Налим", "Форель", "Угорь",
+            "Красноперка", "Язь", "Голавль", "Хариус", "Сазан"
+        };
+
+        Sprite[] fishSprites = {
+            Resources.Load<Sprite>("Fish/Perch"),
+            Resources.Load<Sprite>("Fish/Carp"),
+            Resources.Load<Sprite>("Fish/Catfish"),
+            Resources.Load<Sprite>("Fish/Pike"),
+            Resources.Load<Sprite>("Fish/Zander")
+        };
 
         System.Random rand = new System.Random();
+
         for (int i = 0; i < maxFishCount; i++)
         {
-            fishDatabase.Add(new FishData
+            FishData fish = new FishData
             {
                 fishName = fishNames[rand.Next(fishNames.Length)],
                 weight = GenerateRandomWeight(rand),
                 fishSprite = fishSprites.Length > 0 ? fishSprites[rand.Next(fishSprites.Length)] : null,
                 rarity = rand.Next(1, 6)
-            });
+            };
+            fishDatabase.Add(fish);
         }
+
         Debug.Log("Сгенерировано " + fishDatabase.Count + " рыб в базу!");
     }
 
@@ -234,8 +337,10 @@ public class Fishing : MonoBehaviour
     {
         float[] weightRanges = { 0.1f, 0.5f, 1.5f, 3.0f, 8.0f, 15.0f };
         int rangeIndex = rand.Next(weightRanges.Length);
+
         float minWeight = rangeIndex == 0 ? 0.05f : weightRanges[rangeIndex - 1];
         float maxWeight = weightRanges[rangeIndex];
+
         double value = rand.NextDouble() * (maxWeight - minWeight) + minWeight;
         return Mathf.Round((float)(value * 100f)) / 100f;
     }
