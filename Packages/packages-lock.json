@@ -219,6 +219,14 @@
       },
       "url": "https://packages.unity.com"
     },
+    "com.unity.xr-content.xr-sim-environments": {
+      "version": "file:../ContentPackages\\com.unity.xr-content.xr-sim-environments-2.0.1.tgz",
+      "depth": 0,
+      "source": "local-tarball",
+      "dependencies": {
+        "com.unity.xr.arfoundation": "6.0.0-pre.3"
+      }
+    },
     "com.unity.xr.arcore": {
       "version": "6.0.6",
       "depth": 0,
@@ -272,7 +280,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.xr.interaction.toolkit": {
-      "version": "3.0.9",
+      "version": "3.0.10",
       "depth": 0,
       "source": "registry",
       "dependencies": {
