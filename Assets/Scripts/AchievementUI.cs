@@ -4,6 +4,8 @@ using TMPro;
 
 public class AchievementUI : MonoBehaviour
 {
+
+    [Header("UI Ёлементы")]
     [SerializeField] private Image icon;
     [SerializeField] private TextMeshProUGUI nameText;
     [SerializeField] private TextMeshProUGUI descText;
@@ -15,11 +17,13 @@ public class AchievementUI : MonoBehaviour
             icon.sprite = data.achievementIcon;
             icon.color = unlocked ? Color.white : new Color(0.5f, 0.5f, 0.5f);
         }
+
         if (nameText != null)
         {
             nameText.text = isNotification ? " " + data.achievementName : data.achievementName;
             nameText.color = unlocked ? Color.white : Color.gray;
         }
+
         if (descText != null)
         {
             descText.text = data.achievementDescription;

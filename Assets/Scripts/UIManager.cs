@@ -12,10 +12,14 @@ public class UIManager : MonoBehaviour
     [SerializeField] private Button achievementsButton;
 
     [Header("Canvas")]
-    [SerializeField] private GameObject mainMenuCanvas;        // ГЛАВНЫЙ Canvas
+    [SerializeField] private GameObject mainMenuCanvas;
     [SerializeField] private GameObject fishratingCanvas;
     [SerializeField] private GameObject equipmentCanvas;
     [SerializeField] private GameObject achievementsCanvas;
+
+    [Header("Achievement UI")]
+    [SerializeField] private Transform achievementContainer;  // контейнер для элементов достижений
+    [SerializeField] private GameObject achievementPrefab;    // префаб одного элемента
 
     [Header("Загрузка сцены")]
     [SerializeField] private string sceneToLoad = ""; // Имя сцены через Inspector
@@ -32,20 +36,30 @@ public class UIManager : MonoBehaviour
         // Скрываем все Canvas кроме главного
         HideAllCanvases();
         mainMenuCanvas.SetActive(true);
+
+        // Регистрируем Canvas и префаб в AchievementSystem
+        if (AchievementSystem.Instance != null)
+        {
+            AchievementSystem.Instance.RegisterUI(
+                achievementsCanvas,
+                achievementContainer,
+                achievementPrefab
+            );
+        }
     }
 
     private void HideAllCanvases()
     {
-        mainMenuCanvas.SetActive(false);
-        fishratingCanvas.SetActive(false);
-        equipmentCanvas.SetActive(false);
-        achievementsCanvas.SetActive(false);
+        if (mainMenuCanvas != null) mainMenuCanvas.SetActive(false);
+        if (fishratingCanvas != null) fishratingCanvas.SetActive(false);
+        if (equipmentCanvas != null) equipmentCanvas.SetActive(false);
+        if (achievementsCanvas != null) achievementsCanvas.SetActive(false);
     }
 
     public void LoadNewScene()
     {
-        // Загрузка через Inspector
-        SceneManager.LoadScene(sceneToLoad);
+        if (!string.IsNullOrEmpty(sceneToLoad))
+            SceneManager.LoadScene(sceneToLoad);
     }
 
     public void QuitGame()
@@ -60,25 +74,30 @@ public class UIManager : MonoBehaviour
     public void ShowFishRating()
     {
         HideAllCanvases();
-        fishratingCanvas.SetActive(true);
+        if (fishratingCanvas != null) fishratingCanvas.SetActive(true);
     }
 
     public void ShowEquipment()
     {
-        HideAllCanvases(); 
-        equipmentCanvas.SetActive(true);
+        HideAllCanvases();
+        if (equipmentCanvas != null) equipmentCanvas.SetActive(true);
     }
 
     public void ShowAchievements()
     {
-        HideAllCanvases();          
-        achievementsCanvas.SetActive(true);
+        HideAllCanvases();
+        if (achievementsCanvas != null) achievementsCanvas.SetActive(true);
+
+        // Обновляем UI достижений при открытии Canvas
+        if (AchievementSystem.Instance != null)
+        {
+            AchievementSystem.Instance.RefreshAchievementUI();
+        }
     }
 
-    // Дополнительно: кнопка "Назад" для всех Canvas
     public void BackToMainMenu()
     {
         HideAllCanvases();
-        mainMenuCanvas.SetActive(true);  // ПОКАЗЫВАЕМ ГЛАВНЫЙ
+        if (mainMenuCanvas != null) mainMenuCanvas.SetActive(true);
     }
 }

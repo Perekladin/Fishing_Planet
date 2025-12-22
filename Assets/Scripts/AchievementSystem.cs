@@ -1,12 +1,27 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
-using TMPro;
 using UnityEngine;
-using UnityEngine.UI;
 
 public class AchievementSystem : MonoBehaviour
 {
+
+    // ================== SINGLETON ==================
+    public static AchievementSystem Instance { get; private set; }
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        Instance = this;
+        DontDestroyOnLoad(gameObject);
+    }
+
+    // ================== DATA ==================
     [System.Serializable]
     public class AchievementData
     {
@@ -17,56 +32,101 @@ public class AchievementSystem : MonoBehaviour
         public bool isUnlocked;
     }
 
-    [Header("UI Элементы")]
-    [SerializeField] private GameObject achievementCanvas;
-    [SerializeField] private Transform achievementContainer;  // Grid Layout Group!
-    [SerializeField] private GameObject achievementPrefab;
-
     [Header("Список достижений")]
     [SerializeField] private List<AchievementData> achievements = new List<AchievementData>();
 
-    [Header("Настройки")]
-    [SerializeField] private bool loadAchievementsOnStart = true;
-
-    private void Start()
-    {
-        if (loadAchievementsOnStart)
-        {
-            // Загружаем достижения из PlayerPrefs при старте сцены
-            LoadAchievements();
-            RefreshAchievementUI();
-        }
-    }
-
+    // ================== PUBLIC API ==================
     public void UnlockAchievement(string achievementId)
     {
-        AchievementData achievement = achievements.FirstOrDefault(a => a.achievementId == achievementId);
-        if (achievement != null)
+        var achievement = achievements.FirstOrDefault(a => a.achievementId == achievementId);
+        if (achievement == null || achievement.isUnlocked)
+            return;
+
+        achievement.isUnlocked = true;
+        SaveAchievements();
+
+        Debug.Log("[AchievementSystem] Разблокировано: " + achievementId);
+
+        // Обновляем UI, если есть подписанный Canvas
+        RefreshAchievementUI();
+
+        // Можно показать уведомление
+        ShowNewAchievementNotification(achievement);
+    }
+
+    public bool IsAchievementUnlocked(string achievementId)
+    {
+        return achievements.FirstOrDefault(a => a.achievementId == achievementId)?.isUnlocked ?? false;
+    }
+
+    public List<AchievementData> GetAllAchievements()
+    {
+        return achievements;
+    }
+
+    // ================== SAVE / LOAD ==================
+    public void SaveAchievements()
+    {
+        foreach (var achievement in achievements)
+            PlayerPrefs.SetInt("Achievement_" + achievement.achievementId, achievement.isUnlocked ? 1 : 0);
+
+        PlayerPrefs.Save();
+    }
+
+    public void LoadAchievements()
+    {
+        foreach (var achievement in achievements)
+            achievement.isUnlocked = PlayerPrefs.GetInt("Achievement_" + achievement.achievementId, 0) == 1;
+
+        Debug.Log("[AchievementSystem] Достижения загружены");
+    }
+
+    // ================== UI ==================
+    [Header("UI Canvas для уведомлений (опционально)")]
+    [SerializeField] private GameObject achievementCanvas;
+    [SerializeField] private Transform achievementContainer;
+    [SerializeField] private GameObject achievementPrefab;
+
+    // Подключение UI Canvas (например на сцене меню)
+    public void RegisterUI(GameObject canvas, Transform container, GameObject prefab)
+    {
+        achievementCanvas = canvas;
+        achievementContainer = container;
+        achievementPrefab = prefab;
+
+        RefreshAchievementUI();
+    }
+
+    // Обновление списка достижений на Canvas
+    public void RefreshAchievementUI()
+    {
+        if (achievementContainer == null || achievementPrefab == null)
+            return;
+
+        // Удаляем старые элементы
+        for (int i = achievementContainer.childCount - 1; i >= 0; i--)
+            Destroy(achievementContainer.GetChild(i).gameObject);
+
+        // Создаём новые элементы
+        foreach (var achievement in achievements)
         {
-            if (!achievement.isUnlocked)
-            {
-                achievement.isUnlocked = true;
-                SaveAchievements(); // сохраняем прогресс
-                ShowNewAchievement(achievement);
-                RefreshAchievementUI();
-            }
-        }
-        else
-        {
-            Debug.LogError("Достижение не найдено: " + achievementId);
+            GameObject element = Instantiate(achievementPrefab, achievementContainer);
+            AchievementUI ui = element.GetComponent<AchievementUI>();
+            if (ui != null)
+                ui.Setup(achievement, achievement.isUnlocked, false);
         }
     }
 
-    private void ShowNewAchievement(AchievementData achievement)
+    // Показ уведомления о новом достижении
+    private void ShowNewAchievementNotification(AchievementData achievement)
     {
-        GameObject notification = Instantiate(achievementPrefab, achievementCanvas.transform);
-        notification.transform.SetAsLastSibling();
+        if (achievementCanvas == null || achievementPrefab == null)
+            return;
 
-        AchievementUI[] uiElements = notification.GetComponentsInChildren<AchievementUI>();
-        if (uiElements.Length > 0)
-        {
-            uiElements[0].Setup(achievement, true, true);
-        }
+        GameObject notification = Instantiate(achievementPrefab, achievementCanvas.transform);
+        AchievementUI ui = notification.GetComponentInChildren<AchievementUI>();
+        if (ui != null)
+            ui.Setup(achievement, true, true);
 
         StartCoroutine(AnimateNotification(notification));
     }
@@ -76,95 +136,30 @@ public class AchievementSystem : MonoBehaviour
         CanvasGroup cg = notification.GetComponent<CanvasGroup>();
         if (cg == null) cg = notification.AddComponent<CanvasGroup>();
 
-        cg.alpha = 0;
+        cg.alpha = 0f;
         notification.transform.localPosition = new Vector3(0, 100, 0);
 
-        float duration = 0.5f;
-        float elapsed = 0;
+        float t = 0f;
+        const float duration = 0.5f;
 
-        while (elapsed < duration)
+        while (t < duration)
         {
-            elapsed += Time.deltaTime;
-            cg.alpha = Mathf.Lerp(0, 1, elapsed / duration);
-            notification.transform.localPosition = Vector3.Lerp(new Vector3(0, 100, 0), Vector3.zero, elapsed / duration);
+            t += Time.deltaTime;
+            cg.alpha = Mathf.Lerp(0, 1, t / duration);
+            notification.transform.localPosition = Vector3.Lerp(new Vector3(0, 100, 0), Vector3.zero, t / duration);
             yield return null;
         }
 
         yield return new WaitForSeconds(3f);
 
-        elapsed = 0;
-        while (elapsed < duration)
+        t = 0f;
+        while (t < duration)
         {
-            elapsed += Time.deltaTime;
-            cg.alpha = Mathf.Lerp(1, 0, elapsed / duration);
-            notification.transform.localPosition = Vector3.Lerp(Vector3.zero, new Vector3(0, -100, 0), elapsed / duration);
+            t += Time.deltaTime;
+            cg.alpha = Mathf.Lerp(1, 0, t / duration);
             yield return null;
         }
 
         Destroy(notification);
-    }
-
-    public void ToggleAchievementCanvas()
-    {
-        achievementCanvas.SetActive(!achievementCanvas.activeSelf);
-    }
-
-    private void RefreshAchievementUI()
-    {
-        // удаляем старые элементы UI
-        for (int i = achievementContainer.childCount - 1; i >= 0; i--)
-        {
-            Transform child = achievementContainer.GetChild(i);
-            if (child.GetComponent<AchievementUI>() != null)
-            {
-                DestroyImmediate(child.gameObject);
-            }
-        }
-
-        // создаем новые элементы UI
-        for (int i = 0; i < achievements.Count; i++)
-        {
-            var achievement = achievements[i];
-            CreateAchievementUIElement(achievement, achievement.isUnlocked, i);
-        }
-    }
-
-    private void CreateAchievementUIElement(AchievementData achievement, bool isUnlocked, int index)
-    {
-        GameObject achievementElement = Instantiate(achievementPrefab, achievementContainer);
-        achievementElement.name = "Achievement_" + achievement.achievementId;
-
-        AchievementUI[] uiElements = achievementElement.GetComponentsInChildren<AchievementUI>();
-        if (uiElements.Length > 0)
-        {
-            uiElements[0].Setup(achievement, isUnlocked, false);
-        }
-    }
-
-    private void SaveAchievements()
-    {
-        foreach (var achievement in achievements)
-        {
-            PlayerPrefs.SetInt("Achievement_" + achievement.achievementId, achievement.isUnlocked ? 1 : 0);
-        }
-        PlayerPrefs.Save();
-    }
-
-    private void LoadAchievements()
-    {
-        foreach (var achievement in achievements)
-        {
-            achievement.isUnlocked = PlayerPrefs.GetInt("Achievement_" + achievement.achievementId, 0) == 1;
-        }
-    }
-
-    public bool IsAchievementUnlocked(string achievementId)
-    {
-        return achievements.FirstOrDefault(a => a.achievementId == achievementId)?.isUnlocked ?? false;
-    }
-
-    public int GetUnlockedCount()
-    {
-        return achievements.Count(a => a.isUnlocked);
     }
 }
