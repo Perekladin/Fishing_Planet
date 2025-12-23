@@ -1,14 +1,23 @@
 using UnityEngine;
 
-public class PondTrigger : MonoBehaviour
+[RequireComponent(typeof(Collider))]
+public class PondTriggerCustom
+    : MonoBehaviour
 {
-    public Fishing fishing;
+    private void Awake()
+    {
+        Collider col = GetComponent<Collider>();
+        if (col != null)
+            col.isTrigger = true;
+    }
 
     private void OnTriggerEnter(Collider other)
     {
         if (other.CompareTag("Float"))
         {
-            fishing.OnFloatEnteredPond(other.gameObject);
+            Fishing fishing = FindObjectOfType<Fishing>();
+            if (fishing != null)
+                fishing.OnFloatEnteredPond(other.gameObject);
         }
     }
 }

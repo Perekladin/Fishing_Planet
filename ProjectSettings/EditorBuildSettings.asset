@@ -12,6 +12,12 @@ EditorBuildSettings:
     path: Assets/Scenes/TestPlay.unity
     guid: a44fca8a52e21cb4293f19f11c1dd1b4
   - enabled: 0
+    path: Assets/Scenes/DrawingTest.unity
+    guid: 59bc72eb4d9a4b44c93e11140141d0ff
+  - enabled: 1
+    path: Assets/Scenes/MenuBest.unity
+    guid: 103a228d75c43914eabb9e29ec9c27ff
+  - enabled: 0
     path: Assets/Scenes/ARTest.unity
     guid: 46558ddaa52dbea41a73539ae83291b9
   m_configObjects:
